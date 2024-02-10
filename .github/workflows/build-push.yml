@@ -1,0 +1,127 @@
+name: Docker BuildX Build Push involving pull image from private registry 
+
+env:
+  MAVEN_ARGS: -B -C -V -ntp -Dhttp.keepAlive=false -e
+  DMP_REPOSITORY: https://github.com/fabric8io/docker-maven-plugin
+  DMP_REVISION: master
+  DOCKER_PUSH_USERNAME: ${{ secrets.DOCKER_PUSH_USERNAME }}
+  DOCKER_PUSH_REGISTRY: ${{ secrets.DOCKER_PUSH_REGISTRY }}
+  DOCKER_PUSH_PASSWORD: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+jobs:
+  buildWithoutTests:
+    name: BuildWithoutTests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [17]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Cache .m2 registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: cache-e2e-${{ github.sha }}-${{ github.run_id }}
+      - name: Clone DMP 
+        run: |
+          rm -rf docker-maven-plugin \
+          && git clone "$DMP_REPOSITORY" --branch "$DMP_REVISION" docker-maven-plugin
+      - name: Install DMP 
+        run: mvn ${MAVEN_ARGS} -f "docker-maven-plugin/pom.xml" clean install -DskipTests -Djacoco.skip=true
+  linux-build:
+    name: Linux Build Push 
+    needs: buildWithoutTests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [17]
+        docker: [v25.0.2,v24.0.9,v23.0.6,v20.10.24]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Cache .m2 registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: cache-e2e-${{ github.sha }}-${{ github.run_id }}
+      - name: Setup Java
+        uses: actions/setup-java@v1
+        with:
+          java-version: ${{ matrix.java }}
+      - name: Set up Docker
+        uses: crazy-max/ghaction-setup-docker@v2
+        with:
+          version: ${{ matrix.docker }}
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.DOCKER_PULL_USERNAME }}
+          password: ${{ secrets.DOCKER_PULL_PASSWORD }}
+      - name: Login to Quay.io 
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.DOCKER_PUSH_REGISTRY }}
+          username: ${{ secrets.DOCKER_PUSH_USERNAME }}
+          password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+      - name: Run Integration tests
+        run: |
+          docker version
+          mvn package docker:build 
+          mvn docker:push 
+  macos-build:
+    name: MacOS Build With Maven 
+    needs: buildWithoutTests
+    runs-on: macos-13
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [17]
+        docker: [v25.0.2,v24.0.9,v23.0.6,v20.10.24]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Cache .m2 registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: cache-e2e-${{ github.sha }}-${{ github.run_id }}
+      - name: Setup Java
+        uses: actions/setup-java@v1
+        with:
+          java-version: ${{ matrix.java }}
+      - name: Set up Docker
+        uses: crazy-max/ghaction-setup-docker@v2
+        with:
+          version: ${{ matrix.docker }}
+      - name: Set up Docker Buildx
+        run: |
+          brew install docker-buildx
+          mkdir -p ~/.docker/cli-plugins
+          ln -sfn /usr/local/opt/docker-buildx/bin/docker-buildx ~/.docker/cli-plugins/docker-buildx
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.DOCKER_PULL_USERNAME }}
+          password: ${{ secrets.DOCKER_PULL_PASSWORD }}
+      - name: Login to Quay.io 
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.DOCKER_PUSH_REGISTRY }}
+          username: ${{ secrets.DOCKER_PUSH_USERNAME }}
+          password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+      - name: Run Integration tests
+        run: |
+          export DOCKER_HOST=unix:///Users/runner/.colima/default/docker.sock 
+
+          mvn package docker:build
+          mvn docker:push -Ddocker.push.username=${{ secrets.DOCKER_PUSH_USERNAME }} -Ddocker.push.password=${{ secrets.DOCKER_PUSH_PASSWORD }}

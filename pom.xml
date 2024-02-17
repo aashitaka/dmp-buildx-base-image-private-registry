@@ -15,7 +15,7 @@
     <quarkus.platform.version>3.7.2</quarkus.platform.version>
     <skipITs>true</skipITs>
     <surefire-plugin.version>3.2.5</surefire-plugin.version>
-    <docker-maven-plugin.version>0.44-SNAPSHOT</docker-maven-plugin.version>
+    <docker-maven-plugin.version>0.44.0</docker-maven-plugin.version>
     <docker.push.user>${env.DOCKER_PUSH_USERNAME}</docker.push.user>
     <docker.push.registry>${env.DOCKER_PUSH_REGISTRY}</docker.push.registry>
   </properties>
